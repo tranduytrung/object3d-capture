@@ -1,7 +1,25 @@
 import os
 import object3d
 import argparse
+import numpy
+import glob
+import PIL.Image
 
+# python gen.py --wavefront=robot.obj --texture=robot.jpg --background=D:\tranduytrung\background\**\*.jpg --num=30 --out=D:\tranduytrung\auto-generated\val
+
+def augment_random_background(image, bg_paths, mask):
+    bg_id = numpy.random.randint(0, len(bg_paths))
+    bg_image = PIL.Image.open(bg_paths[bg_id]).resize(image.size, PIL.Image.BILINEAR)
+    # convert RGB if background is not
+    if bg_image.mode != 'RGB':
+        bg_image = bg_image.convert('RGB')
+
+    # convert mask to greyscale since PIL does not work corectly on mode 1?
+    # mask = mask.convert(mode='L')
+
+    # paste to background image
+    bg_image.paste(image, None, mask)
+    return bg_image
 
 def main():
     parser = argparse.ArgumentParser(
@@ -59,6 +77,13 @@ def main():
         help="prefix of output file (prefix)001.rgb.png",
     )
 
+    parser.add_argument(
+        "--background",
+        required=False,
+        default='',
+        help="prefix of output file (prefix)001.rgb.png",
+    )
+
     args = parser.parse_args()
 
     wf_file = args.wavefront
@@ -68,6 +93,7 @@ def main():
     width = args.width
     height = args.height
     num = args.num
+    bg_paths = glob.glob(args.background, recursive=True) if args.background else None
 
     if not prefix:
         prefix = os.path.basename(wf_file).split(".")[0]
@@ -80,8 +106,12 @@ def main():
         fn = os.path.join(out_dir, image_id +'.rgb.png')
         fnb = os.path.join(out_dir, image_id + '.01.1.png')
         obj3d.random_context()
-        obj3d.render_image().save(fn)
-        obj3d.render_bimage().save(fnb)
+        image = obj3d.render_image()
+        mask = obj3d.render_bimage()
+        if bg_paths:
+            image = augment_random_background(image, bg_paths, mask)
+        image.save(fn)
+        mask.save(fnb)
         print(f"saved {image_id}")
 
 if __name__ == "__main__":

@@ -114,7 +114,7 @@ class Object3DCapture:
         
         return fbo.read()
     
-    def render_image(self, clr_color=(1.0, 1.0, 1.0)):
+    def render_image(self, clr_color=(0.0, 0.0, 0.0)):
         return Image.frombytes('RGB', self.fbo.size, self.render(clr_color), 'raw')
     
     def render_bimage(self):
