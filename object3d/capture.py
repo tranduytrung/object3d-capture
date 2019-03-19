@@ -137,7 +137,7 @@ class Object3DCapture:
         phi = np.random.uniform(0, 2*np.pi)
         cam_x = center[0] + cam_r*np.sin(theta)*np.cos(phi)
         cam_y = center[1] + cam_r*np.sin(theta)*np.sin(phi)
-        cam_z = center[0] + cam_r*np.cos(theta)
+        cam_z = center[2] + cam_r*np.cos(theta)
         self.cam_pos = [cam_x, cam_y, cam_z]
 
         # camera lookat
