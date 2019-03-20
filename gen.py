@@ -21,14 +21,14 @@ def augment_random_background(image, bg_paths, mask):
     bg_image.paste(image, None, mask)
     return bg_image
 
-def generate(wf_file, tt_file, out_dir, bg_paths, width=512, height=512, size=100, prefix=None, class_id=None, log=None):
+def generate(wf_file, tt_file, mtl_file, out_dir, bg_paths, width=512, height=512, size=100, prefix=None, class_id=None, log=None):
     if not prefix:
         prefix = os.path.basename(wf_file).split(".")[0]
 
     if not class_id:
         class_id = '0'
 
-    obj3d = object3d.Object3DCapture(wf_file, tt_file, output_size=(width, height))
+    obj3d = object3d.Object3DCapture(wf_file, tt_file, mtl_file, output_size=(width, height))
     
     digit_num = len(str(size))
     for i in range(size):
@@ -61,6 +61,14 @@ def main():
         required=True,
         metavar="/path/to/texture/",
         help="path to texture file (.jpg)",
+    )
+
+    parser.add_argument(
+        "--mtl",
+        required=False,
+        default=None,
+        metavar="/path/to/material/",
+        help="path to texture file (.mtl)",
     )
 
     parser.add_argument(
@@ -112,6 +120,7 @@ def main():
 
     wf_file = args.wavefront
     tt_file = args.texture
+    mtl_file = args.mtl
     out_dir = args.out
     prefix = args.prefix
     width = args.width
@@ -119,7 +128,7 @@ def main():
     num = args.num
     bg_paths = glob.glob(args.background, recursive=True) if args.background else None
 
-    generate(wf_file, tt_file, out_dir, bg_paths, width=width, height=height, size=num, prefix=prefix, log=print)
+    generate(wf_file, tt_file, mtl_file, out_dir, bg_paths, width=width, height=height, size=num, prefix=prefix, log=print)
 
 if __name__ == "__main__":
     main()
