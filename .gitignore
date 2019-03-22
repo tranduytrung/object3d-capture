@@ -1,6 +1,11 @@
+# data
+*.mtl
+*.jpg
+*.obj
+
 # logs
 /logs
-out_*/
+/out*/
 
 # VS Code
 .vscode

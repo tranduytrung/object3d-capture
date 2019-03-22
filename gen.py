@@ -50,15 +50,16 @@ def main():
         description="Generate random RGB images and their masks of a 3D Object")
 
     parser.add_argument(
-        "--wavefront",
+        "--obj",
         required=True,
         metavar="/path/to/3d-object/",
-        help="path to frontwave file (.obj)",
+        help="path to 3d object file (.obj)",
     )
 
     parser.add_argument(
         "--texture",
-        required=True,
+        required=False,
+        default=None,
         metavar="/path/to/texture/",
         help="path to texture file (.jpg)",
     )
@@ -118,7 +119,7 @@ def main():
 
     args = parser.parse_args()
 
-    wf_file = args.wavefront
+    wf_file = args.obj
     tt_file = args.texture
     mtl_file = args.mtl
     out_dir = args.out

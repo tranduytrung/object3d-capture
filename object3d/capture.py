@@ -1,8 +1,8 @@
 """ Capture 2D images of a 3D object in different point of views
 """
+import trimesh
 import moderngl
 import numpy as np
-from objloader import Obj
 from PIL import Image, ImageOps
 from pyrr import Matrix44, Vector4
 from .mtlparser import MTLParser
@@ -50,6 +50,8 @@ class Object3DCapture:
         out vec4 f_color;
 
         uniform int mode;
+        uniform bool useTexture;
+        uniform vec3 mainColor;
         uniform sampler2D Texture;
         uniform vec3 lightPos;
         uniform vec3 lightColor;
@@ -96,9 +98,14 @@ class Object3DCapture:
               specular = pow(specAngle, shininess/4.0);
             }
           }
-          vec3 texColor = texture(Texture, texCoord).rgb;
-          vec3 colorLinear = texColor * ambientColor +
-                             texColor * diffuseColor * lambertian * lightColor * lightPower / distance +
+          
+          vec3 trueColor = mainColor;
+          if (useTexture) {
+              trueColor = texture(Texture, texCoord).rgb;
+          }
+          
+          vec3 colorLinear = trueColor * ambientColor +
+                             trueColor * diffuseColor * lambertian * lightColor * lightPower / distance +
                              specColor * specular * lightColor * lightPower / distance;
           // apply gamma correction (assume ambientColor, diffuseColor and specColor
           // have been linearized, i.e. have no gamma correction in them)
@@ -109,7 +116,7 @@ class Object3DCapture:
     '''
     
     """ Capture the 2D images of an 3D Object"""
-    def __init__(self, wavefront_path, texture_path, material_path=None, output_size=(512, 512)):
+    def __init__(self, cad_path, texture_path=None, material_path=None, output_size=(512, 512)):
         # context and shader program
         self.ctx = ctx = moderngl.create_standalone_context()
         ctx.enable(moderngl.DEPTH_TEST)
@@ -117,36 +124,57 @@ class Object3DCapture:
             vertex_shader=self.__phong_vertex_shader,
             fragment_shader=self.__phong_fragment_shader
         )
-        
+
+        self._projection = prog['projection']
+        self._modelview = prog['modelview']
+        self._normalMat = prog['normalMat']
+        self._mode = prog['mode']
+        self._useTexture = prog['useTexture']
+        self._mainColor = prog['mainColor']
+        self._lightPos = prog['lightPos']
+        self._lightColor = prog['lightColor']
+        self._lightPower = prog['lightPower']
+        self._ambientColor = prog['ambientColor']
+        self._diffuseColor = prog['diffuseColor']
+        self._specColor = prog['specColor']
+        self._shininess = prog['shininess']
+
         # load wavefront obj file and the texture
-        self.obj = obj = Obj.open(wavefront_path)
-        img = Image.open(texture_path).convert('RGB').transpose(Image.FLIP_TOP_BOTTOM)
+        if isinstance(cad_path, trimesh.base.Trimesh):
+            self.mesh = mesh = cad_path
+        else:
+            self.mesh = mesh = trimesh.load(cad_path)
+            
         if material_path is None:
             material = Material('default')
         else:
             material = MTLParser.from_file(material_path)[0] # get only the first
+
+
+        if texture_path is not None:
+            img = Image.open(texture_path).convert('RGB').transpose(Image.FLIP_TOP_BOTTOM)
+            texture = ctx.texture(img.size, 3, img.tobytes())
+            texture.build_mipmaps()
+            texture.use()
+        elif mesh.visual.kind == 'texture':
+            img = mesh.visual.material.image.convert('RGB').transpose(Image.FLIP_TOP_BOTTOM)
+            texture = ctx.texture(img.size, 3, img.tobytes())
+            texture.build_mipmaps()
+            texture.use()
+
+        # prepare data
+        mesh.apply_scale(1.0 / mesh.scale) # normalize to unit sphere
+        ver_idx = mesh.faces.reshape(-1)
+        data = np.empty((ver_idx.shape[0], 8), dtype=np.float32)
+        data[:, :3] = mesh.vertices[ver_idx]
+        data[:, 3:6] = mesh.vertex_normals[ver_idx]
+        if hasattr(mesh.visual, 'uv'):
+            data[:, 6:] = mesh.visual.uv[ver_idx, :2]
+            self._useTexture.value = True
+        else:
+            self._useTexture.value = False
         
-        # mtl parser
-
-        self.projection = prog['projection']
-        self.modelview = prog['modelview']
-        self.normalMat = prog['normalMat']
-        self.mode = prog['mode']
-
-        self.lightPos = prog['lightPos']
-        self.lightColor = prog['lightColor']
-        self.lightPower = prog['lightPower']
-        self.ambientColor = prog['ambientColor']
-        self.diffuseColor = prog['diffuseColor']
-        self.specColor = prog['specColor']
-        self.shininess = prog['shininess']
-
-
-        texture = ctx.texture(img.size, 3, img.tobytes())
-        texture.build_mipmaps()
-        texture.use()
-
-        vbo = ctx.buffer(obj.pack('vx vy vz nx ny nz tx ty'))
+        vbo = ctx.buffer(data.tobytes())
         self.vao = ctx.simple_vertex_array(prog, vbo, 'inputPosition', 'inputNormal', 'inputTexCoord')
         
         # editable parameters
@@ -155,12 +183,13 @@ class Object3DCapture:
         self.cam_pos_coe_max = 10.0
         
         # setup default
+        self.main_color = (1.0, 0.0, 0.0)
         self.light_color = (1.0, 1.0, 1.0)
         self.light_power = 2.0
         self.ambien_color = material.ka
         self.diffuse_color = material.kd
         self.spec_color = material.ks
-        self.shininess_value = material.ns
+        self.shininess = material.ns
         self.output_size = output_size
         self.random_context()
         
@@ -197,20 +226,21 @@ class Object3DCapture:
         rz = Matrix44.from_z_rotation(self.rotate_z)
         m = rx*ry*rz*t
 
-        self.projection.write(p.astype('f4').tobytes())
+        self._projection.write(p.astype('f4').tobytes())
         mv = v*m
-        self.modelview.write(mv.astype('f4').tobytes())
+        self._modelview.write(mv.astype('f4').tobytes())
         n = mv.inverse.transpose()
-        self.normalMat.write(n.astype('f4').tobytes())
-        self.mode.value = 2 # Phong
+        self._normalMat.write(n.astype('f4').tobytes())
+        self._mode.value = 2 # Phong
         #lightPos.value = tuple(tuple(n*Vector4.from_vector3(light_pos))[:3])
-        self.lightPos.value = tuple(self.light_pos)
-        self.lightColor.value = tuple(self.light_color)
-        self.lightPower.value = self.light_power
-        self.ambientColor.value = tuple(self.ambien_color)
-        self.diffuseColor.value = tuple(self.diffuse_color)
-        self.specColor.value = tuple(self.spec_color)
-        self.shininess.value = self.shininess_value
+        self._lightPos.value = tuple(self.light_pos)
+        self._lightColor.value = tuple(self.light_color)
+        self._lightPower.value = self.light_power
+        self._ambientColor.value = tuple(self.ambien_color)
+        self._diffuseColor.value = tuple(self.diffuse_color)
+        self._specColor.value = tuple(self.spec_color)
+        self._shininess.value = self.shininess
+        self._mainColor.value = self.main_color
         
         self.vao.render()        
         return fbo.read()
@@ -229,9 +259,9 @@ class Object3DCapture:
         return ImageOps.invert(img.convert('L', dither=None)).convert("1")
             
     def random_context(self):
-        obj = self.obj
-        self.obj_center = np.mean(obj.vert, axis=0)
-        r = np.sqrt(np.sum((np.max(obj.vert, axis=0) - np.min(obj.vert, axis=0))**2)) / 2
+        obj = self.mesh
+        self.obj_center = np.mean(obj.vertices, axis=0)
+        r = np.sqrt(np.sum((np.max(obj.vertices, axis=0) - np.min(obj.vertices, axis=0))**2)) / 2
 
         # obj -> camera (radius)
         cam_r = r + np.random.uniform(self.cam_pos_coe_min*r, self.cam_pos_coe_max*r)
