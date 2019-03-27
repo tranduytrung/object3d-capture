@@ -78,7 +78,7 @@ class Object3DCapture:
           distance = distance * distance;
           lightDir = normalize(lightDir);
 
-          float lambertian = max(dot(lightDir,normal), 0.0);
+          float lambertian = min(max(dot(lightDir,normal), 0.0), 1.0);
           float specular = 0.0;
 
           if(lambertian > 0.0) {
@@ -93,7 +93,7 @@ class Object3DCapture:
             // this is phong (for comparison)
             if(mode == 2) {
               vec3 reflectDir = reflect(-lightDir, normal);
-              specAngle = max(dot(reflectDir, viewDir), 0.0);
+              specAngle = min(max(dot(reflectDir, viewDir), 0.0), 1.0);
               // note that the exponent is different here
               specular = pow(specAngle, shininess/4.0);
             }
@@ -109,9 +109,9 @@ class Object3DCapture:
                              specColor * specular * lightColor * lightPower / distance;
           // apply gamma correction (assume ambientColor, diffuseColor and specColor
           // have been linearized, i.e. have no gamma correction in them)
-          vec3 colorGammaCorrected = pow(colorLinear, vec3(1.0/screenGamma));
+          // vec3 colorGammaCorrected = pow(colorLinear, vec3(1.0/screenGamma));
           // use the gamma corrected color in the fragment
-          f_color = vec4(colorGammaCorrected, 1.0);
+          f_color = vec4(colorLinear, 1.0);
         }
     '''
     
@@ -119,7 +119,7 @@ class Object3DCapture:
     def __init__(self, cad_path, texture_path=None, material_path=None, output_size=(512, 512)):
         # context and shader program
         self.ctx = ctx = moderngl.create_standalone_context()
-        ctx.enable(moderngl.DEPTH_TEST)
+        ctx.enable(moderngl.DEPTH_TEST | moderngl.CULL_FACE)
         prog = ctx.program(
             vertex_shader=self.__phong_vertex_shader,
             fragment_shader=self.__phong_fragment_shader
@@ -164,6 +164,8 @@ class Object3DCapture:
 
         # prepare data
         mesh.apply_scale(1.0 / mesh.scale) # normalize to unit sphere
+        center = np.mean(mesh.vertices, axis=0)
+        mesh.apply_translation(-center)
         ver_idx = mesh.faces.reshape(-1)
         data = np.empty((ver_idx.shape[0], 8), dtype=np.float32)
         data[:, :3] = mesh.vertices[ver_idx]
@@ -178,20 +180,25 @@ class Object3DCapture:
         self.vao = ctx.simple_vertex_array(prog, vbo, 'inputPosition', 'inputNormal', 'inputTexCoord')
         
         # editable parameters
-        self.cam_angle = 45.0
-        self.cam_pos_coe_min = 2.0
-        self.cam_pos_coe_max = 10.0
-        
         # setup default
         self.main_color = (1.0, 0.0, 0.0)
         self.light_color = (1.0, 1.0, 1.0)
-        self.light_power = 2.0
+        self.light_power = 10.0
         self.ambien_color = material.ka
         self.diffuse_color = material.kd
         self.spec_color = material.ks
         self.shininess = material.ns
         self.output_size = output_size
-        self.random_context()
+        # camera
+        self.cam_angle = 65.0
+        self.cam_r = 1.0 + 2.0/0.5*(1.0/np.tan(self.cam_angle))
+        self.cam_pos = rand_sphere((.0, .0, .0), self.cam_r)
+        self.cam_up = (0.0, 1.0, 0.0)
+        self.target_translate = (0.0, 0.0)
+        # light
+        self.light_pos = (3.4, 3.4, 3.4)
+        # rotation
+        self.rotate_x, self.rotate_y, self.rotate_z = (0, 0, 0)
         
     @property
     def output_size(self):
@@ -214,17 +221,17 @@ class Object3DCapture:
         
         cam_ratio = self.fbo.size[0] / self.fbo.size[1]
         
-        p = Matrix44.perspective_projection(self.cam_angle, cam_ratio, 0.01, 1000.0)
+        p = Matrix44.perspective_projection(self.cam_angle, cam_ratio, 0.00001, 1000000.0)
         v = Matrix44.look_at(
             self.cam_pos,
-            self.target_pos,
+            (0,0,0),
             self.cam_up,
         )
-        t = Matrix44.from_translation(-self.obj_center)
+
         rx = Matrix44.from_x_rotation(self.rotate_x)
         ry = Matrix44.from_y_rotation(self.rotate_y)
         rz = Matrix44.from_z_rotation(self.rotate_z)
-        m = rx*ry*rz*t
+        m = rx*ry*rz
 
         self._projection.write(p.astype('f4').tobytes())
         mv = v*m
@@ -240,13 +247,17 @@ class Object3DCapture:
         self._diffuseColor.value = tuple(self.diffuse_color)
         self._specColor.value = tuple(self.spec_color)
         self._shininess.value = self.shininess
-        self._mainColor.value = self.main_color
+        self._mainColor.value = tuple(self.main_color)
         
         self.vao.render()        
         return fbo.read()
     
     def render_image(self, clr_color=(0.0, 0.0, 0.0)):
-        return Image.frombytes('RGB', self.fbo.size, self.render(clr_color), 'raw')
+        obj_image = Image.frombytes('RGB', self.fbo.size, self.render(clr_color), 'raw')
+        empty_image = Image.new('RGB', self.output_size, tuple(np.array(clr_color, dtype=int)))
+        empty_image.paste(obj_image, tuple(self.target_translate))
+        
+        return empty_image
     
     def render_bimage(self):
         saved_light = self.light_color
@@ -256,22 +267,40 @@ class Object3DCapture:
         img = Image.frombytes('RGB', self.fbo.size, self.render((1.0, 1.0, 1.0)), 'raw')
         self.light_color = saved_light
         self.ambien_color = saved_ambien
-        return ImageOps.invert(img.convert('L', dither=None)).convert("1")
+        
+        obj_image = ImageOps.invert(img.convert('L', dither=None)).convert("1")
+        empty_image = Image.new('1', self.output_size)
+        empty_image.paste(obj_image, tuple(self.target_translate))
+        return empty_image
             
-    def random_context(self):
+    def random_context(self, light=True, obj_rotation=True, obj_color=True,
+                       coverage=[0.1, 0.5]):
         obj = self.mesh
-        self.obj_center = np.mean(obj.vertices, axis=0)
-        r = np.sqrt(np.sum((np.max(obj.vertices, axis=0) - np.min(obj.vertices, axis=0))**2)) / 2
+        #r = np.sqrt(np.sum((np.max(obj.vertices, axis=0) - np.min(obj.vertices, axis=0))**2)) / 2
+        r = 0.5 # unit sphere
+        
+        if coverage is not None:
+            if hasattr(coverage, '__len__') and len(coverage) == 2:
+                c = np.random.uniform(coverage[0], coverage[1])
+            elif isinstance(coverage, (int, float)):
+                c = coverage
+            else:
+                raise ValueError()
+            
+            self.cam_r = (r/c)*(1.0/np.tan(np.radians(self.cam_angle / 2)))
 
         # obj -> camera (radius)
-        cam_r = r + np.random.uniform(self.cam_pos_coe_min*r, self.cam_pos_coe_max*r)
-        self.cam_pos = rand_sphere((.0, .0, .0), cam_r)
-        offset_lim = cam_r*np.tan(np.radians(self.cam_angle) / 2) - r
-        self.target_pos = np.random.uniform(-offset_lim, offset_lim, size=3)
-        self.cam_up = np.random.uniform(-1, 1, size=3)
+            self.cam_pos = rand_sphere((.0, .0, .0), self.cam_r)
+            self.target_translate = (np.random.uniform(-0.5 + c/2, 0.5 - c/2, size=2) * self.output_size).astype(int)
+            self.cam_up = np.random.uniform(-1, 1, size=3)
 
         # light
-        self.light_pos = rand_sphere((.0, .0, .0), r * self.cam_pos_coe_max)
+        if light:
+            self.light_pos = rand_sphere((.0, .0, .0), self.cam_r*2)
         
         # obj rotate
-        self.rotate_x, self.rotate_y, self.rotate_z = np.random.uniform(-np.pi, np.pi, size=3)
+        if obj_rotation:
+            self.rotate_x, self.rotate_y, self.rotate_z = np.random.uniform(-np.pi, np.pi, size=3)
+
+        if obj_color:
+            self.main_color = np.random.uniform(size=3)

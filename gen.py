@@ -21,7 +21,8 @@ def augment_random_background(image, bg_paths, mask):
     bg_image.paste(image, None, mask)
     return bg_image
 
-def generate(wf_file, tt_file, mtl_file, out_dir, bg_paths, width=512, height=512, size=100, prefix=None, class_id=None, log=None):
+def generate(wf_file, tt_file, mtl_file, out_dir, bg_paths, width=512, height=512, 
+        num_instances=100, coverage=(0.1, 0.5), prefix=None, class_id=None, log=None):
     if not prefix:
         prefix = os.path.basename(wf_file).split(".")[0]
 
@@ -30,12 +31,12 @@ def generate(wf_file, tt_file, mtl_file, out_dir, bg_paths, width=512, height=51
 
     obj3d = object3d.Object3DCapture(wf_file, tt_file, mtl_file, output_size=(width, height))
     
-    digit_num = len(str(size))
-    for i in range(size):
+    digit_num = len(str(num_instances))
+    for i in range(num_instances):
         image_id = '{prefix}{it:0{width}}'.format(prefix=prefix, it=i, width=digit_num)
         fn = os.path.join(out_dir, image_id +'.rgb.png')
         fnb = os.path.join(out_dir, image_id + f'.{class_id}.1.png')
-        obj3d.random_context()
+        obj3d.random_context(coverage=coverage)
         image = obj3d.render_image()
         mask = obj3d.render_bimage()
         if bg_paths:
@@ -50,6 +51,7 @@ def main():
         description="Generate random RGB images and their masks of a 3D Object")
 
     parser.add_argument(
+        "-i",
         "--obj",
         required=True,
         metavar="/path/to/3d-object/",
@@ -57,6 +59,7 @@ def main():
     )
 
     parser.add_argument(
+        "-t",
         "--texture",
         required=False,
         default=None,
@@ -65,6 +68,7 @@ def main():
     )
 
     parser.add_argument(
+        "-m",
         "--mtl",
         required=False,
         default=None,
@@ -73,6 +77,18 @@ def main():
     )
 
     parser.add_argument(
+        "-c",
+        "--coverage",
+        required=False,
+        default=(0.1, 0.5),
+        nargs='+',
+        type=int,
+        metavar="default to 0.1 -> 0.5",
+        help="range of coverage",
+    )
+
+    parser.add_argument(
+        "-o",
         "--out",
         required=True,
         metavar="/path/to/output/directory/",
@@ -80,6 +96,7 @@ def main():
     )
 
     parser.add_argument(
+        "-n",
         "--num",
         required=False,
         default=100,
@@ -111,6 +128,7 @@ def main():
     )
 
     parser.add_argument(
+        "-b",
         "--background",
         required=False,
         default='',
@@ -127,9 +145,10 @@ def main():
     width = args.width
     height = args.height
     num = args.num
+    coverage = args.coverage
     bg_paths = glob.glob(args.background, recursive=True) if args.background else None
 
-    generate(wf_file, tt_file, mtl_file, out_dir, bg_paths, width=width, height=height, size=num, prefix=prefix, log=print)
+    generate(wf_file, tt_file, mtl_file, out_dir, bg_paths, width=width, height=height, num_instances=num, prefix=prefix, log=print, coverage=coverage)
 
 if __name__ == "__main__":
     main()
