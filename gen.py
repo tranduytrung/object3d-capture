@@ -7,18 +7,6 @@ import PIL.Image
 
 # python gen.py --wavefront=robot.obj --texture=robot.jpg --background=D:\tranduytrung\background\**\*.jpg --num=30 --out=D:\tranduytrung\auto-generated\val
 
-def convert_obj2egg(obj_file):
-    from obj2egg import ObjFile, GlobPattern, Filename
-    obj = ObjFile(obj_file)
-    egg = obj.toEgg(verbose=False)
-    f, e = os.path.splitext(obj_file)
-    outfile = f + ".egg"
-            
-    egg.removeUnusedVertices(GlobPattern(""))
-    #egg.triangulatePolygons(EggData.TConvex & EggData.TPolygon)
-    #egg.recomputePolygonNormals()
-    egg.writeEgg(Filename(outfile))
-
 def augment_random_background(image, bg_paths, mask):
     bg_id = numpy.random.randint(0, len(bg_paths))
     bg_image = PIL.Image.open(bg_paths[bg_id]).resize(image.size, PIL.Image.BILINEAR)
@@ -33,7 +21,7 @@ def augment_random_background(image, bg_paths, mask):
     bg_image.paste(image, None, mask)
     return bg_image
 
-def generate2(wf_file, out_dir, bg_paths, width=512, height=512, random_color=False,
+def generate2(wf_file, out_dir, bg_paths, width=512, height=512, random_color=False, cast_shadow=True,
         num_instances=100, coverage=(0.1, 0.5), prefix=None, class_id=None, log=None):
     if not prefix:
         prefix = os.path.basename(wf_file).split(".")[0]
@@ -43,10 +31,14 @@ def generate2(wf_file, out_dir, bg_paths, width=512, height=512, random_color=Fa
 
     fn, ext = os.path.splitext(wf_file)
     if ext == '.obj':
-        convert_obj2egg(wf_file)
-        wf_file = fn + '.egg'
+        egg_file = fn + '.egg'
+        if not os.path.isfile(egg_file):
+            from obj2egg import obj2egg
+            log('converting to egg file')
+            obj2egg(wf_file, egg_file)
+        wf_file = egg_file
 
-    with object3d.Panda3DRenderer(wf_file, output_size=(width, height)) as obj3d:
+    with object3d.Panda3DRenderer(wf_file, output_size=(width, height), cast_shadow=cast_shadow) as obj3d:
         digit_num = len(str(num_instances))
         for i in range(num_instances):
             image_id = '{prefix}{it:0{width}}'.format(prefix=prefix, it=i, width=digit_num)
@@ -124,7 +116,7 @@ def main():
         required=False,
         default=(0.1, 0.5),
         nargs='+',
-        type=int,
+        type=float,
         metavar="default to 0.1 -> 0.5",
         help="range of coverage",
     )

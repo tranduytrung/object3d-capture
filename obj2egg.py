@@ -540,7 +540,7 @@ def obj2egg(infile, outfile=None):
     #egg.recomputePolygonNormals()
     #egg.recomputeVertexNormals(30)
     #egg.recomputeTangentBinormal(GlobPattern(""))
-    egg.writeEgg(Filename(outfile))
+    egg.writeEgg(Filename.fromOsSpecific(outfile))
     #egg.setCoordinateSystem (CS_zup_right)
 
 def main(argv=None):

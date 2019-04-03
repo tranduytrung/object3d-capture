@@ -14,7 +14,7 @@ import PIL.Image
 class Panda3DRenderer:
     __lock = Lock()
 
-    def __init__(self, cad_file, output_size=(512, 512)):
+    def __init__(self, cad_file, output_size=(512, 512), cast_shadow=True):
         # acquire lock since showbase cannot be created twice
         Panda3DRenderer.__lock.acquire()
 
@@ -37,19 +37,24 @@ class Panda3DRenderer:
 
         # directional light
         dlight = DirectionalLight('dlight')
-        # dlight.setColor(VBase4(0.8, 0.8, 0.5, 1))
+        dlight.setColor(VBase4(0.75, 0.75, 0.75, 1))
         dlnp = base.render.attachNewNode(dlight)
-        # cast shadow from light
-        dlight.setShadowCaster(True, 1024, 1024)
-        lens = dlight.getLens()
-        lens.setFilmSize(65)
         base.render.setLight(dlnp)
+        # cast shadow from light
         # set auto shader
-        base.render.setShaderAuto()
+        if cast_shadow:
+            model_node.setDepthOffset(1)
+            dlight.setShadowCaster(True, 1024, 1024)
+            lens = dlight.getLens()
+            lens.set_near_far(0.866, 1000)
+            lens.set_fov(1, 1)
+            # lens.set_film_size(base.camLens.get_film_size())
+            # lens.set_focal_length(base.camLens.get_focal_length())
+            base.render.setShaderAuto()
 
         # ambient light
         alight = AmbientLight('alight')
-        alight.setColor(VBase4(0.2, 0.2, 0.2, 1))
+        alight.setColor(VBase4(0.5, 0.5, 0.5, 1))
         alnp = base.render.attachNewNode(alight)
         base.render.setLight(alnp)
 
@@ -61,8 +66,11 @@ class Panda3DRenderer:
         self.clear_color = (0.0 ,0.0 , 0.0, 0.0)
         # translate in rendered image
         self.obj_translate = (0, 0)
-        # light direction
-        self.light_hpr = (0, 0, 0)
+        # light location (use location for cast shadow)
+        self.dlight_params = {
+            'theta': np.random.uniform(0, np.pi),
+            'phi': np.random.uniform(0, 2*np.pi)
+        }
         # object rotation
         self.obj_hpr = (0, 0, 0)
 
@@ -80,15 +88,6 @@ class Panda3DRenderer:
     @clear_color.setter
     def clear_color(self, value):
         self._clear_color = VBase4(*value)
-
-    @property
-    def light_hpr(self):
-        hpr = self._light_hpr
-        return hpr.get_x(), hpr.get_y(), hpr.get_z()
-
-    @light_hpr.setter
-    def light_hpr(self, value):
-        self._light_hpr = VBase3(*value)
 
     @property
     def obj_hpr(self):
@@ -125,12 +124,23 @@ class Panda3DRenderer:
         # tan_cam = lens.get_vfov() / 2 / lens.get_near()
         return r/(c*tan_cam)
 
+    def get_dlight_pos(self):
+        theta = self.dlight_params['theta']
+        phi = self.dlight_params['phi']
+        radius = self.get_camera_radius()
+        x = radius*np.sin(theta)*np.cos(phi)
+        y = radius*np.sin(theta)*np.sin(phi)
+        z = radius*np.cos(theta)
+    
+        return VBase3(x, y, z)
+
     def render(self, binary=True):
         base = self.base
         # context
         base.win.setClearColor(self._clear_color)
         base.camera.set_pos(VBase3(0, -self.get_camera_radius(), 0))
-        self.dlight.set_hpr(self._light_hpr)
+        self.dlight.set_pos(self.get_dlight_pos())
+        self.dlight.look_at(self.obj)
         self.obj.set_hpr(self._obj_hpr)
 
         # redner
@@ -161,8 +171,11 @@ class Panda3DRenderer:
         r = 1  # unit sphere
 
         if coverage is not None:
-            if hasattr(coverage, '__len__') and len(coverage) == 2:
-                self.coverage = np.random.uniform(coverage[0], coverage[1])
+            if hasattr(coverage, '__len__'):
+                if len(coverage) == 2:
+                    self.coverage = np.random.uniform(coverage[0], coverage[1])
+                else:
+                    self.coverage = coverage[0]
             elif isinstance(coverage, (int, float)):
                 self.coverage = coverage
             else:
@@ -174,7 +187,10 @@ class Panda3DRenderer:
             
         # light
         if light:
-            self.light_hpr = np.random.uniform(-180, 180, size=3)
+            self.dlight_params = {
+                'theta': np.random.uniform(0, np.pi),
+                'phi': np.random.uniform(0, 2*np.pi)
+            }
 
         # obj rotate
         if obj_rotation:
