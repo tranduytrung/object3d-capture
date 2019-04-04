@@ -21,7 +21,7 @@ def augment_random_background(image, bg_paths, mask):
     bg_image.paste(image, None, mask)
     return bg_image
 
-def generate2(wf_file, out_dir, bg_paths, width=512, height=512, random_color=False, cast_shadow=True,
+def generate2(wf_file, out_dir, bg_paths, width=512, height=512, random_color=False, cast_shadow=True, light_on=True,
         num_instances=100, coverage=(0.1, 0.5), prefix=None, class_id=None, log=None):
     if not prefix:
         prefix = os.path.basename(wf_file).split(".")[0]
@@ -38,7 +38,8 @@ def generate2(wf_file, out_dir, bg_paths, width=512, height=512, random_color=Fa
             obj2egg(wf_file, egg_file)
         wf_file = egg_file
 
-    with object3d.Panda3DRenderer(wf_file, output_size=(width, height), cast_shadow=cast_shadow) as obj3d:
+    with object3d.Panda3DRenderer(wf_file, output_size=(width, height), 
+                cast_shadow=cast_shadow, light_on=light_on) as obj3d:
         digit_num = len(str(num_instances))
         for i in range(num_instances):
             image_id = '{prefix}{it:0{width}}'.format(prefix=prefix, it=i, width=digit_num)

@@ -14,7 +14,7 @@ import PIL.Image
 class Panda3DRenderer:
     __lock = Lock()
 
-    def __init__(self, cad_file, output_size=(512, 512), cast_shadow=True):
+    def __init__(self, cad_file, output_size=(512, 512), light_on=True, cast_shadow=True):
         # acquire lock since showbase cannot be created twice
         Panda3DRenderer.__lock.acquire()
 
@@ -37,7 +37,7 @@ class Panda3DRenderer:
 
         # directional light
         dlight = DirectionalLight('dlight')
-        dlight.setColor(VBase4(0.75, 0.75, 0.75, 1))
+        dlight.setColor(VBase4(0.15, 0.15, 0.15, 1))
         dlnp = base.render.attachNewNode(dlight)
         base.render.setLight(dlnp)
         # cast shadow from light
@@ -54,7 +54,7 @@ class Panda3DRenderer:
 
         # ambient light
         alight = AmbientLight('alight')
-        alight.setColor(VBase4(0.5, 0.5, 0.5, 1))
+        alight.setColor(VBase4(0.75, 0.75, 0.75, 1))
         alnp = base.render.attachNewNode(alight)
         base.render.setLight(alnp)
 
@@ -79,6 +79,9 @@ class Panda3DRenderer:
         self.alight = alnp
         self.obj = nom_node
         self.camera = base.camera
+
+        if not light_on:
+            base.render.set_light_off()
 
     @property
     def clear_color(self):
@@ -130,7 +133,7 @@ class Panda3DRenderer:
         radius = self.get_camera_radius()
         x = radius*np.sin(theta)*np.cos(phi)
         y = radius*np.sin(theta)*np.sin(phi)
-        z = radius*np.cos(theta)
+        z = np.absolute(radius*np.cos(theta))
     
         return VBase3(x, y, z)
 
