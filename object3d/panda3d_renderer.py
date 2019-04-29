@@ -7,7 +7,7 @@ from threading import Lock
 from direct.showbase.ShowBase import ShowBase
 from panda3d.core import VBase4, VBase3, VBase2
 from panda3d.core import Filename, loadPrcFileData
-from panda3d.core import DirectionalLight, AmbientLight, AntialiasAttrib
+from panda3d.core import DirectionalLight, AmbientLight, PointLight, PerspectiveLens, AntialiasAttrib
 import numpy as np
 import PIL.Image
 
@@ -23,41 +23,90 @@ class Panda3DRenderer:
         base = ShowBase(windowType='offscreen')
 
         # coordinate for normalized and centered object
-        nom_node = base.render.attach_new_node('normalized_obj')
+        obj_node = base.render.attach_new_node('normalized_obj')
         # Convert that to panda's unix-style notation.
         filepath = Filename.fromOsSpecific(cad_file).getFullpath()
         # load model and add to render root
-        model_node = base.loader.load_model(filepath, noCache=True)
-        model_node.reparent_to(nom_node)
+        obj = base.loader.load_model(filepath, noCache=True)
+        obj.reparent_to(obj_node)
         # scale to uinit sphere
-        model_node_bounds = nom_node.getBounds()
-        model_node.set_scale(1/model_node_bounds.radius)
-        model_node_bounds = nom_node.getBounds()
-        model_node.set_pos(-model_node_bounds.center)
-
-        # directional light
-        dlight = DirectionalLight('dlight')
-        dlight.setColor(VBase4(0.15, 0.15, 0.15, 1))
-        dlnp = base.render.attachNewNode(dlight)
-        base.render.setLight(dlnp)
-        # cast shadow from light
-        # set auto shader
+        obj_bounds = obj_node.getBounds()
+        obj.set_scale(1/obj_bounds.radius)
+        obj_bounds = obj_node.getBounds()
+        obj.set_pos(-obj_bounds.center)
         if cast_shadow:
-            model_node.setDepthOffset(1)
-            dlight.setShadowCaster(True, 1024, 1024)
-            lens = dlight.getLens()
-            lens.set_near_far(0.866, 1000)
-            lens.set_fov(1, 1)
-            # lens.set_film_size(base.camLens.get_film_size())
-            # lens.set_focal_length(base.camLens.get_focal_length())
-            base.render.setShaderAuto()
+            obj.set_depth_offset(-1)
 
-        # ambient light
+        # ambient
         alight = AmbientLight('alight')
-        alight.setColor(VBase4(0.75, 0.75, 0.75, 1))
+        alight.set_color(VBase4(0.5, 0.5, 0.5, 1.0))
         alnp = base.render.attachNewNode(alight)
         base.render.setLight(alnp)
 
+        # directional light for ambient
+        dlight1 = DirectionalLight('dlight1')
+        dlight1.set_color(VBase4(0.235, 0.235, 0.235, 1.0))
+        dlnp1 = base.render.attach_new_node(dlight1)
+        dlnp1.set_pos(-2, 3, 1)
+        dlnp1.look_at(obj_node)
+        base.render.set_light(dlnp1)
+
+        # point light for ambient
+        plight1 = PointLight('plight1')
+        plight1.set_color(VBase4(1.75, 1.75, 1.75, 1.0))
+        plight1.setAttenuation((1,1,1))
+        plnp1 = base.render.attach_new_node(plight1)
+        plnp1.set_pos(0, 0, 3)
+        plnp1.look_at(obj_node)
+        base.render.set_light(plnp1)
+
+        plight2 = PointLight('plight2')
+        plight2.set_color(VBase4(1.5, 1.5, 1.5, 1.0))
+        plight2.setAttenuation((1,0,1))
+        plnp2 = base.render.attach_new_node(plight2)
+        plnp2.set_pos(0, -3, 0)
+        plnp2.look_at(obj_node)
+        base.render.set_light(plnp2)
+
+        dlight2 = DirectionalLight('dlight2')
+        dlight2.set_color(VBase4(0.325, 0.325, 0.325, 1.0))
+        dlnp2 = base.render.attach_new_node(dlight2)
+        dlnp2.set_pos(-1, 1, -1.65)
+        dlnp2.look_at(obj_node)
+        base.render.set_light(dlnp2)
+
+        dlight3 = DirectionalLight('dlight3')
+        dlight3.set_color(VBase4(0.15, 0.15, 0.15, 1.0))
+        dlnp3 = base.render.attach_new_node(dlight3)
+        dlnp3.set_pos(-2.5, 2.5, 2.0)
+        dlnp3.look_at(obj_node)
+        base.render.set_light(dlnp3)
+        if cast_shadow:
+            lens = PerspectiveLens()
+            dlight3.set_lens(lens)
+            dlight3.set_shadow_caster(True, 1024, 1024)
+
+        dlight4 = DirectionalLight('dlight4')
+        dlight4.set_color(VBase4(0.17, 0.17, 0.17, 1.0))
+        dlnp4 = base.render.attach_new_node(dlight4)
+        dlnp4.set_pos(1.2, -2.0, 2.5)
+        dlnp4.look_at(obj_node)
+        base.render.set_light(dlnp4)
+        if cast_shadow:
+            lens = PerspectiveLens()
+            dlight4.set_lens(lens)
+            dlight4.set_shadow_caster(True, 1024, 1024)
+
+        self.direct_node = direct_node = base.render.attach_new_node('direct_light')
+        dlnp2.reparent_to(direct_node)
+        dlnp3.reparent_to(direct_node)
+        dlnp4.reparent_to(direct_node)
+        
+        # auto shader for shadow
+        if cast_shadow:
+            base.render.setShaderAuto()
+        # no culling
+        base.render.set_two_sided(True)
         # anti-alias
         base.render.setAntialias(AntialiasAttrib.MMultisample, 8)
         # init camera position
@@ -66,18 +115,13 @@ class Panda3DRenderer:
         self.clear_color = (0.0 ,0.0 , 0.0, 0.0)
         # translate in rendered image
         self.obj_translate = (0, 0)
-        # light location (use location for cast shadow)
-        self.dlight_params = {
-            'theta': np.random.uniform(0, np.pi),
-            'phi': np.random.uniform(0, 2*np.pi)
-        }
+        # light rotation
+        self.light_hpr = (0, 0, 0)
         # object rotation
         self.obj_hpr = (0, 0, 0)
 
         self.base = base
-        self.dlight = dlnp
-        self.alight = alnp
-        self.obj = nom_node
+        self.obj = obj_node
         self.camera = base.camera
 
         if not light_on:
@@ -91,6 +135,15 @@ class Panda3DRenderer:
     @clear_color.setter
     def clear_color(self, value):
         self._clear_color = VBase4(*value)
+
+    @property
+    def light_hpr(self):
+        hpr = self._light_hpr
+        return hpr.get_x(), hpr.get_y(), hpr.get_z()
+
+    @light_hpr.setter
+    def light_hpr(self, value):
+        self._light_hpr = VBase3(*value)
 
     @property
     def obj_hpr(self):
@@ -142,9 +195,8 @@ class Panda3DRenderer:
         # context
         base.win.setClearColor(self._clear_color)
         base.camera.set_pos(VBase3(0, -self.get_camera_radius(), 0))
-        self.dlight.set_pos(self.get_dlight_pos())
-        self.dlight.look_at(self.obj)
         self.obj.set_hpr(self._obj_hpr)
+        self.direct_node.set_hpr(self._light_hpr)
 
         # redner
         base.graphics_engine.render_frame()
@@ -154,7 +206,7 @@ class Panda3DRenderer:
         bytes_image = bytes(tex.get_ram_image_as('RGBA'))
         pil_image = PIL.Image.frombytes('RGBA', base.get_size(), bytes_image)
         pil_image = pil_image.transpose(PIL.Image.FLIP_TOP_BOTTOM)
-        if tuple(self.target_translate) != (0, 0):
+        if tuple(self.obj_translate) != (0, 0):
             np_clear_color = np.array(self._clear_color*255, dtype=int)
             translated_image = PIL.Image.new('RGBA', pil_image.size, tuple(np_clear_color))
             np_obj_translate = np.array(self.obj_translate, dtype=int)
@@ -185,15 +237,13 @@ class Panda3DRenderer:
                 raise ValueError()
 
         if obj_translate:
-            self.target_translate = np.random.uniform(-0.5 + self.coverage/2, 0.5 - self.coverage/2, size=2) \
+            self.obj_translate = np.random.uniform(-0.5 + self.coverage/2, 0.5 - self.coverage/2, size=2) \
                                      * self.base.get_size()
             
         # light
         if light:
-            self.dlight_params = {
-                'theta': np.random.uniform(0, np.pi),
-                'phi': np.random.uniform(0, 2*np.pi)
-            }
+            self.light_hpr = np.random.uniform(
+                -180, 180, size=3)
 
         # obj rotate
         if obj_rotation:

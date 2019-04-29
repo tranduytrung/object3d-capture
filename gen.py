@@ -54,7 +54,7 @@ def generate2(wf_file, out_dir, bg_paths, width=512, height=512, random_color=Fa
             image.save(fn)
             mask.save(fnb)
             if log:
-                log(f"saved {image_id}")
+                log(f"saved {fn}")
 
 def generate(wf_file, tt_file, mtl_file, out_dir, bg_paths, width=512, height=512, 
         num_instances=100, coverage=(0.1, 0.5), prefix=None, class_id=None, log=None):
