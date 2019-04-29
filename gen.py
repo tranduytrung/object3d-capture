@@ -9,7 +9,18 @@ import PIL.Image
 
 def augment_random_background(image, bg_paths, mask):
     bg_id = numpy.random.randint(0, len(bg_paths))
-    bg_image = PIL.Image.open(bg_paths[bg_id]).resize(image.size, PIL.Image.BILINEAR)
+    bg_image = PIL.Image.open(bg_paths[bg_id])
+    # resize
+    bg_size = bg_image.size
+    desired_size = image.size[0] # square image
+    ratio = float(desired_size)/min(bg_size)
+    new_size = tuple([int(x*ratio) for x in bg_size])
+    bg_image = bg_image.resize(new_size, PIL.Image.BILINEAR)
+    # random crop
+    left = 0 if new_size[0] == desired_size else numpy.random.randint(0, new_size[0] - desired_size)
+    top = 0 if new_size[1] == desired_size else numpy.random.randint(0, new_size[1] - desired_size)
+    bg_image = bg_image.crop((left, top, left + desired_size, top + desired_size))
+
     # convert RGB if background is not
     if bg_image.mode != 'RGB':
         bg_image = bg_image.convert('RGB')
@@ -167,7 +178,7 @@ def main():
         "--background",
         required=False,
         default='',
-        help="prefix of output file (prefix)001.rgb.png",
+        help="glob of background. Ex: ./*.jpg",
     )
 
     args = parser.parse_args()
