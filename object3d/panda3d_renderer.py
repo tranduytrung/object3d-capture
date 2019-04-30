@@ -14,7 +14,7 @@ import PIL.Image
 class Panda3DRenderer:
     __lock = Lock()
 
-    def __init__(self, cad_file, output_size=(512, 512), light_on=True, cast_shadow=True):
+    def __init__(self, cad_file=None, output_size=(512, 512), light_on=True, cast_shadow=True):
         # acquire lock since showbase cannot be created twice
         Panda3DRenderer.__lock.acquire()
 
@@ -24,18 +24,6 @@ class Panda3DRenderer:
 
         # coordinate for normalized and centered object
         obj_node = base.render.attach_new_node('normalized_obj')
-        # Convert that to panda's unix-style notation.
-        filepath = Filename.fromOsSpecific(cad_file).getFullpath()
-        # load model and add to render root
-        obj = base.loader.load_model(filepath, noCache=True)
-        obj.reparent_to(obj_node)
-        # scale to uinit sphere
-        obj_bounds = obj_node.getBounds()
-        obj.set_scale(1/obj_bounds.radius)
-        obj_bounds = obj_node.getBounds()
-        obj.set_pos(-obj_bounds.center)
-        if cast_shadow:
-            obj.set_depth_offset(-1)
 
         # ambient
         alight = AmbientLight('alight')
@@ -121,8 +109,12 @@ class Panda3DRenderer:
         self.obj_hpr = (0, 0, 0)
 
         self.base = base
-        self.obj = obj_node
+        self.obj = None
+        self.obj_node = obj_node
+        self.cast_shadow = cast_shadow
         self.camera = base.camera
+        if cad_file is not None:
+            self.set_obj(cad_file)            
 
         if not light_on:
             base.render.set_light_off()
@@ -190,12 +182,34 @@ class Panda3DRenderer:
     
         return VBase3(x, y, z)
 
+    def set_obj(self, obj_path):
+        obj_node = self.obj_node
+        cast_shadow = self.cast_shadow
+
+        if self.obj is not None:
+            self.obj.remove_node()
+
+        # Convert that to panda's unix-style notation.
+        filepath = Filename.fromOsSpecific(obj_path).getFullpath()
+        # load model and add to render root
+        obj = base.loader.load_model(filepath, noCache=True)
+        obj.reparent_to(obj_node)
+        # scale to uinit sphere
+        obj_bounds = obj_node.getBounds()
+        obj.set_scale(1/obj_bounds.radius)
+        obj_bounds = obj_node.getBounds()
+        obj.set_pos(-obj_bounds.center)
+        if cast_shadow:
+            obj.set_depth_offset(-1)
+
+        self.obj = obj
+
     def render(self, binary=True):
         base = self.base
         # context
         base.win.setClearColor(self._clear_color)
         base.camera.set_pos(VBase3(0, -self.get_camera_radius(), 0))
-        self.obj.set_hpr(self._obj_hpr)
+        self.obj_node.set_hpr(self._obj_hpr)
         self.direct_node.set_hpr(self._light_hpr)
 
         # redner
